@@ -4,6 +4,28 @@ const tpsService = require('../services/tpsService');
 const Chain = require('../models/chain');
 const TPS = require('../models/tps');
 
+// Add these new routes at the top of the file
+router.post('/tps/update', async (req, res) => {
+  try {
+    const chains = await Chain.find().select('chainId');
+    console.log(`[Vercel Cron] Updating TPS for ${chains.length} chains`);
+    
+    // Update TPS for all chains
+    const updates = await Promise.all(
+      chains.map(chain => tpsService.updateTpsData(chain.chainId))
+    );
+    
+    res.json({
+      success: true,
+      chainsUpdated: chains.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Vercel Cron] TPS update failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Get TPS history for a chain
 router.get('/chains/:chainId/tps/history', async (req, res) => {
   try {
@@ -235,6 +257,39 @@ router.get('/tps/status', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     }
+});
+
+// Add this new route near the top of the file
+router.post('/daily-update', async (req, res) => {
+  try {
+    console.log('[Daily Update] Starting daily update process');
+    const startTime = Date.now();
+
+    // Update chains first
+    const chains = await Chain.find().select('chainId');
+    console.log(`[Daily Update] Found ${chains.length} chains to update`);
+
+    // Update TPS for all chains
+    for (const chain of chains) {
+      await tpsService.updateTpsData(chain.chainId);
+    }
+
+    // Update TVL
+    await tvlService.updateTvlData();
+
+    const duration = (Date.now() - startTime) / 1000;
+    console.log(`[Daily Update] Completed in ${duration}s`);
+
+    res.json({
+      success: true,
+      chainsUpdated: chains.length,
+      duration: `${duration}s`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Daily Update] Failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 module.exports = router; 

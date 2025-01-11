@@ -60,4 +60,19 @@ router.get('/tvl/health', async (req, res) => {
   }
 });
 
+router.post('/tvl/update', async (req, res) => {
+  try {
+    console.log('[Vercel Cron] Starting TVL update');
+    await tvlService.updateTvlData();
+    
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Vercel Cron] TVL update failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 module.exports = router; 

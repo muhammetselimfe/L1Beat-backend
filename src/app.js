@@ -26,15 +26,46 @@ console.log('MongoDB URI:', process.env.NODE_ENV === 'production'
 // Environment-specific configurations
 const isDevelopment = process.env.NODE_ENV === 'development';
 
-// CORS configuration with environment-specific settings
-app.use(cors({
-  origin: isDevelopment 
-    ? '*' 
-    : ['https://l1beat.io', 'https://www.l1beat.io', 'http://localhost:4173', 'http://localhost:5173'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
-}));
+// Update CORS configuration
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production' 
+        ? [
+            'https://www.l1beat.io',     // Main production URL
+            'https://l1beat.io',         // Apex domain
+            'http://localhost:5173',     // Development URL
+            'http://localhost:4173'      // Vite preview URL
+        ]
+        : '*',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-api-key'],
+    exposedHeaders: ['Access-Control-Allow-Origin'],
+    maxAge: 86400 // 24 hours
+};
+
+// Apply CORS with options
+app.use(cors(corsOptions));
+
+// Add preflight handler for all routes
+app.options('*', cors(corsOptions));
+
+// Add CORS headers middleware as backup
+app.use((req, res, next) => {
+    // Get origin from request
+    const origin = req.headers.origin;
+    
+    // Check if origin is allowed
+    if (corsOptions.origin === '*' || 
+        (Array.isArray(corsOptions.origin) && corsOptions.origin.includes(origin))) {
+        res.header('Access-Control-Allow-Origin', origin);
+    }
+    
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 
+        'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-api-key');
+    next();
+});
 
 app.use(express.json());
 
@@ -178,14 +209,22 @@ if (isDevelopment) {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  
-  // Send proper JSON response
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: err.message,
-    path: req.path
-  });
+    console.error('Error:', err);
+
+    // Ensure CORS headers are set even for errors
+    const origin = req.headers.origin;
+    if (corsOptions.origin === '*' || 
+        (Array.isArray(corsOptions.origin) && corsOptions.origin.includes(origin))) {
+        res.header('Access-Control-Allow-Origin', origin);
+    }
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    // Send proper JSON response
+    res.status(500).json({
+        error: 'Internal Server Error',
+        message: err.message,
+        path: req.path
+    });
 });
 
 // Add catch-all route for undefined routes
@@ -196,9 +235,6 @@ app.use('*', (req, res) => {
     path: req.path
   });
 });
-
-// Add OPTIONS handling for preflight requests
-app.options('*', cors());
 
 const PORT = process.env.PORT || 5001;
 

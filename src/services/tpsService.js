@@ -4,6 +4,8 @@ const Chain = require('../models/chain');
 
 class TpsService {
   async updateTpsData(chainId, retryCount = 3) {
+    console.log(`[TPS Update] Starting update for chain ${chainId} in ${process.env.NODE_ENV}`);
+    
     for (let attempt = 1; attempt <= retryCount; attempt++) {
       try {
         console.log(`[TPS Update] Starting update for chain ${chainId} (Attempt ${attempt}/${retryCount})`);
@@ -81,10 +83,8 @@ class TpsService {
 
           console.log(`[TPS Update] Success for chain ${chainId}:`, {
             validDataPoints: validTpsData.length,
-            matched: result.matchedCount,
-            modified: result.modifiedCount,
-            upserted: result.upsertedCount,
-            environment: process.env.NODE_ENV
+            environment: process.env.NODE_ENV,
+            timestamp: new Date().toISOString()
           });
 
           return result;
@@ -94,20 +94,17 @@ class TpsService {
         return null;
 
       } catch (error) {
-        console.error(`[TPS Update] Error for chain ${chainId} (Attempt ${attempt}/${retryCount}):`, {
-          message: error.message,
-          status: error.response?.status,
-          data: error.response?.data,
-          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        console.error(`[TPS Update] Error for chain ${chainId}:`, {
+          attempt,
+          error: error.message,
+          environment: process.env.NODE_ENV,
+          timestamp: new Date().toISOString()
         });
-
+        
         if (attempt === retryCount) {
-          // On final attempt, log but don't throw
-          console.error(`[TPS Update] All attempts failed for chain ${chainId}`);
-          return null;
+          throw error;
         }
-
-        // Wait before retry
+        
         await new Promise(resolve => setTimeout(resolve, attempt * 2000));
       }
     }
