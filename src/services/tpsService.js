@@ -285,51 +285,72 @@ class TpsService {
 
   async getNetworkTpsHistory(days = 7) {
     try {
-      const cutoffDate = Math.floor(Date.now() / 1000) - (days * 24 * 60 * 60);
+      const now = Math.floor(Date.now() / 1000);
+      const startTime = now - (days * 24 * 60 * 60);
       
       // Get all chains
       const chains = await Chain.find().select('chainId').lean();
       
+      // First, ensure we have fresh data for all chains
+      console.log('Updating TPS data for all chains...');
+      await Promise.all(chains.map(chain => this.updateTpsData(chain.chainId)));
+
       // Get TPS data for all chains within the time range
       const tpsData = await TPS.aggregate([
         {
           $match: {
             chainId: { $in: chains.map(c => c.chainId) },
-            timestamp: { $gte: cutoffDate }
+            timestamp: { $gte: startTime }
           }
         },
         {
-          // Group by timestamp and sum the values
+          $addFields: {
+            dayTimestamp: {
+              $subtract: [
+                "$timestamp",
+                { $mod: ["$timestamp", 86400] }
+              ]
+            }
+          }
+        },
+        {
           $group: {
-            _id: '$timestamp',
-            totalTps: { $sum: '$value' },
+            _id: {
+              day: "$dayTimestamp",
+              chainId: "$chainId"
+            },
+            avgTps: { $avg: "$value" }
+          }
+        },
+        {
+          $group: {
+            _id: "$_id.day",
+            totalTps: { $sum: "$avgTps" },
             chainCount: { $sum: 1 }
           }
         },
         {
-          // Format the output
           $project: {
             _id: 0,
-            timestamp: '$_id',
-            totalTps: { $round: ['$totalTps', 2] },
+            timestamp: "$_id",
+            totalTps: { $round: ["$totalTps", 2] },
             chainCount: 1
           }
         },
         {
-          // Sort by timestamp
           $sort: { timestamp: 1 }
         }
       ]);
 
-      // Add metadata to each data point
       const enrichedData = tpsData.map(point => ({
         ...point,
         date: new Date(point.timestamp * 1000).toISOString()
       }));
 
-      console.log(`Found ${enrichedData.length} historical network TPS records`);
+      console.log(`Found ${enrichedData.length} daily network TPS records`);
       return enrichedData;
     } catch (error) {
+      console.error('Error in getNetworkTpsHistory:', error);
       throw new Error(`Error fetching network TPS history: ${error.message}`);
     }
   }
